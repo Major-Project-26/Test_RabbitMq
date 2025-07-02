@@ -1,0 +1,27 @@
+{
+  "name": "chatbot-agent-gemini",
+  "version": "1.0.0",
+  "description": "Chatbot Agent Service with Google Gemini AI",
+  "main": "chatbot-agent.js",
+  "scripts": {
+    "start": "node chatbot-agent.js",
+    "dev": "nodemon chatbot-agent.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.6.0",
+    "amqplib": "^0.10.8",
+    "dotenv": "^16.6.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": [
+    "chatbot",
+    "rabbitmq",
+    "gemini",
+    "ai"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
