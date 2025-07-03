@@ -5,13 +5,18 @@ let channel;
 let connection;
 
 async function connectRabbitMQ() {
-  if (!connection) {
+  if (channel) return channel;
+
+  try {
     connection = await amqp.connect('amqp://localhost');
     channel = await connection.createChannel();
-
-    await channel.assertExchange('chatbot_exchange', 'topic', { durable: true });
+    await channel.assertExchange('chatbot-exchange', 'direct', { durable: true });
+    console.log('[RabbitMQ] Connected and exchange asserted.');
+    return channel;
+  } catch (error) {
+    console.error('[RabbitMQ] Failed to connect:', error);
+    throw error;
   }
-  return channel;
 }
 
 async function publishToQueue(exchange, routingKey, message) {
@@ -19,7 +24,7 @@ async function publishToQueue(exchange, routingKey, message) {
   channel.publish(exchange, routingKey, Buffer.from(JSON.stringify(message)), {
     persistent: true,
   });
-  console.log(`📤 Published message to ${exchange} → ${routingKey}`);
+  console.log(`[RabbitMQ] Published message to ${exchange} with key ${routingKey}`);
 }
 
-module.exports = { publishToQueue };
+module.exports = { publishToQueue, connectRabbitMQ };

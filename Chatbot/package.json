@@ -2,10 +2,10 @@
   "name": "chatbot-agent-gemini",
   "version": "1.0.0",
   "description": "Chatbot Agent Service with Google Gemini AI",
-  "main": "chatbot-agent.js",
+  "main": "agent.js",
   "scripts": {
-    "start": "node chatbot-agent.js",
-    "dev": "nodemon chatbot-agent.js",
+    "start": "node agent.js",
+    "dev": "nodemon agent.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {

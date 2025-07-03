@@ -4,7 +4,6 @@ export async function POST(request: NextRequest) {
   try {
     const { userId, question } = await request.json();
 
-    // Validate required fields
     if (!userId || !question) {
       return NextResponse.json(
         { error: 'userId and question are required' },
@@ -12,16 +11,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Forward the request to the backend API
-    const backendResponse = await fetch('http://localhost:3001/api/questions', {
+    const backendResponse = await fetch('http://localhost:3001/ask', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        userId,
-        question,
-      }),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, question }),
     });
 
     if (!backendResponse.ok) {
@@ -34,9 +27,7 @@ export async function POST(request: NextRequest) {
 
     const data = await backendResponse.json();
     return NextResponse.json(data);
-
   } catch (error) {
-    console.error('API route error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

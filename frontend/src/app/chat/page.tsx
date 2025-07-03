@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Send, Bot, User } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
 
-// TypeScript interfaces
 interface Message {
   id: string;
   sender: 'user' | 'bot';
@@ -15,7 +15,6 @@ interface ChatBubbleProps {
   message: Message;
 }
 
-// ChatBubble component for displaying individual messages
 const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
   const isUser = message.sender === 'user';
   
@@ -36,7 +35,11 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
           ? 'bg-blue-500 text-white' 
           : 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
       }`}>
-        <p className="text-sm leading-relaxed">{message.text}</p>
+        {message.sender === 'bot' ? (
+          <ReactMarkdown>{message.text}</ReactMarkdown>
+        ) : (
+          <p>{message.text}</p>
+        )}
         <span className={`text-xs opacity-70 mt-1 block ${
           isUser ? 'text-blue-100' : 'text-gray-500 dark:text-gray-400'
         }`}>
@@ -51,10 +54,16 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [userId] = useState(() => `user_${Math.random().toString(36).substr(2, 9)}`); // Generate random user ID
+  const [userId, setUserId] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const ws = useRef<WebSocket | null>(null);
 
-  // Auto-scroll to bottom when new messages arrive
+  // Generate a unique user ID on the client-side.
+  useEffect(() => {
+    setUserId(`user_${Math.random().toString(36).substr(2, 9)}`);
+  }, []);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -63,38 +72,63 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
-  // TODO: Replace with real WebSocket connection for real-time communication
-  // This is a mock implementation using setTimeout
-  const simulateWebSocketResponse = (questionId: string, question: string) => {
-    // Simulate processing delay (1-3 seconds)
-    const delay = Math.random() * 2000 + 1000;
-    
-    setTimeout(() => {
-      const mockResponse = `I received your question: "${question}". This is a mock response. In the real implementation, this will come via WebSocket from the backend after processing through RabbitMQ.`;
-      
+  useEffect(() => {
+    if (!userId) return;
+
+    setConnectionStatus('connecting');
+    ws.current = new WebSocket(`ws://localhost:3001?userId=${userId}`);
+
+    ws.current.onopen = () => {
+      console.log('WebSocket connected');
+      setConnectionStatus('online');
+    };
+
+    ws.current.onmessage = (event) => {
+      const botReply = JSON.parse(event.data);
       const botMessage: Message = {
         id: `bot_${Date.now()}`,
         sender: 'bot',
-        text: mockResponse,
+        text: botReply.payload,
         timestamp: new Date()
       };
-      
       setMessages(prev => [...prev, botMessage]);
       setIsLoading(false);
-    }, delay);
-  };
+    };
+
+    ws.current.onclose = () => {
+      console.log('WebSocket disconnected');
+      setConnectionStatus('offline');
+    };
+
+    ws.current.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      setConnectionStatus('offline');
+      const errorMessage: Message = {
+        id: `error_${Date.now()}`,
+        sender: 'bot',
+        text: 'Sorry, there was a connection issue. Please refresh the page.',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorMessage]);
+      setIsLoading(false);
+    };
+
+    return () => {
+      ws.current?.close();
+    };
+  }, [userId]);
+
 
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!inputText.trim() || isLoading) return;
+    if (!inputText.trim() || isLoading || !userId || connectionStatus !== 'online') return;
 
     const question = inputText.trim();
     setInputText('');
     setIsLoading(true);
 
-    // Add user message immediately to UI
     const userMessage: Message = {
       id: `user_${Date.now()}`,
       sender: 'user',
@@ -105,8 +139,8 @@ export default function ChatPage() {
     setMessages(prev => [...prev, userMessage]);
 
     try {
-      // Call backend API endpoint directly (you can also use /api/ask if you want to proxy through Next.js)
-      const response = await fetch('http://localhost:3001/ask', {
+      // Use the Next.js API route instead of calling the backend directly.
+      const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -124,21 +158,13 @@ export default function ChatPage() {
       const data = await response.json();
       console.log('Question sent successfully:', data);
 
-      // TODO: Replace this mock with real WebSocket listener
-      // In the real implementation, you would:
-      // 1. Establish WebSocket connection on component mount
-      // 2. Listen for messages with matching questionId or userId
-      // 3. Update UI when response arrives
-      simulateWebSocketResponse(data.questionId, question);
-
     } catch (error) {
       console.error('Error sending question:', error);
       
-      // Show error message
       const errorMessage: Message = {
         id: `error_${Date.now()}`,
         sender: 'bot',
-        text: 'Sorry, there was an error processing your question. Please make sure the backend server is running on http://localhost:3001',
+        text: 'Sorry, there was an error sending your question. Please try again.',
         timestamp: new Date()
       };
       
@@ -157,9 +183,6 @@ export default function ChatPage() {
             AI Chat Assistant
           </h1>
         </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-          User ID: {userId}
-        </p>
       </div>
 
       {/* Messages Container */}
@@ -171,8 +194,7 @@ export default function ChatPage() {
               Welcome to AI Chat
             </h2>
             <p className="text-gray-500 dark:text-gray-400 max-w-md">
-              Ask me anything! Your questions will be processed through our AI system 
-              and you'll receive responses in real-time.
+              Ask me anything!
             </p>
           </div>
         ) : (
@@ -206,8 +228,12 @@ export default function ChatPage() {
             type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
-            placeholder="Type your question here..."
-            disabled={isLoading}
+            placeholder={
+              connectionStatus === 'online' 
+                ? 'Type your question here...' 
+                : 'Waiting for server connection...'
+            }
+            disabled={isLoading || connectionStatus !== 'online'}
             className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg 
                      bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 
                      placeholder-gray-500 dark:placeholder-gray-400
@@ -216,7 +242,7 @@ export default function ChatPage() {
           />
           <button
             type="submit"
-            disabled={!inputText.trim() || isLoading}
+            disabled={!inputText.trim() || isLoading || connectionStatus !== 'online'}
             className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 
                      focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
                      disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-500
@@ -229,15 +255,22 @@ export default function ChatPage() {
         
         {/* Status indicator */}
         <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-          {isLoading ? (
-            <span className="flex items-center gap-1">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              Processing your question...
+          {connectionStatus === 'connecting' && (
+            <span className="flex items-center gap-1 text-yellow-500">
+              <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+              Connecting to server...
             </span>
-          ) : (
-            <span className="flex items-center gap-1">
+          )}
+          {connectionStatus === 'online' && (
+            <span className="flex items-center gap-1 text-green-500">
               <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              Ready to chat
+              Connected
+            </span>
+          )}
+          {connectionStatus === 'offline' && (
+            <span className="flex items-center gap-1 text-red-500">
+              <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+              Connection failed. Please ensure the backend server is running.
             </span>
           )}
         </div>

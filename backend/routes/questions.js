@@ -9,7 +9,7 @@ router.post('/', async (req, res) => {
   const { userId, question } = req.body;
 
   if (!userId || !question) {
-    return res.status(400).json({ error: 'userId and question required' });
+    return res.status(400).json({ error: 'userId and question are required' });
   }
 
   const questionId = uuidv4();
@@ -17,16 +17,16 @@ router.post('/', async (req, res) => {
   const message = {
     questionId,
     userId,
-    question,
+    question, // Renamed from 'payload' for clarity
     timestamp: new Date().toISOString()
   };
 
   try {
-    await publishToQueue('chatbot_exchange', 'question.user.' + userId, message);
+    await publishToQueue('chatbot-exchange', 'question', message);
     res.status(200).json({ success: true, questionId });
   } catch (error) {
-    console.error('Error publishing to RabbitMQ:', error);
-    res.status(500).json({ error: 'Internal Server Error' });
+    console.error('[RabbitMQ] Error publishing question:', error);
+    res.status(500).json({ error: 'Failed to publish question' });
   }
 });
 
