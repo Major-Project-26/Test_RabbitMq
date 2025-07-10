@@ -19,6 +19,7 @@ export default function RootLayout({ children }) {
             <div className="space-x-4">
               <Link href="/chat" className="hover:text-blue-200">Chatbot</Link>
               <Link href="/communities" className="hover:text-blue-200">Communities</Link>
+              <Link href="/discussions" className="hover:text-blue-200">Discussions</Link>
               <Link href="/admin" className="hover:text-blue-200">Admin</Link>
             </div>
           </div>

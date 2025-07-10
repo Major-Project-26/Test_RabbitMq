@@ -1,5 +1,5 @@
 const amqp = require('amqplib');
-const { EXCHANGE_CHATBOT, EXCHANGE_COMMUNITY, EXCHANGE_TYPE_DIRECT, EXCHANGE_TYPE_FANOUT } = require('../../shared/constants');
+const { EXCHANGE_CHATBOT, EXCHANGE_COMMUNITY, EXCHANGE_DISCUSSIONS, EXCHANGE_TYPE_DIRECT, EXCHANGE_TYPE_FANOUT, EXCHANGE_TYPE_TOPIC } = require('../../shared/constants');
 
 let channel;
 let connection;
@@ -13,6 +13,7 @@ async function connectRabbitMQ() {
     
     await channel.assertExchange(EXCHANGE_CHATBOT, EXCHANGE_TYPE_DIRECT, { durable: true });
     await channel.assertExchange(EXCHANGE_COMMUNITY, EXCHANGE_TYPE_FANOUT, { durable: false });
+    await channel.assertExchange(EXCHANGE_DISCUSSIONS, EXCHANGE_TYPE_TOPIC, { durable: false });
     
     console.log('[RabbitMQ] Connected and exchanges asserted.');
     return channel;

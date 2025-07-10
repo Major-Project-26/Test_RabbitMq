@@ -4,7 +4,15 @@ const http = require('http');
 const { WebSocketServer } = require('ws');
 const cors = require('cors');
 const { connectRabbitMQ } = require('./rabbitmq/publisher');
-const { EXCHANGE_CHATBOT, QUEUE_REPLIES, ROUTING_KEY_REPLY, EXCHANGE_COMMUNITY, EXCHANGE_TYPE_FANOUT } = require('../shared/constants');
+const { 
+  EXCHANGE_CHATBOT, 
+  QUEUE_REPLIES, 
+  ROUTING_KEY_REPLY, 
+  EXCHANGE_COMMUNITY, 
+  EXCHANGE_TYPE_FANOUT,
+  EXCHANGE_DISCUSSIONS,
+  EXCHANGE_TYPE_TOPIC
+} = require('../shared/constants');
 const questionRoutes = require('./routes/questions');
 const broadcastRoutes = require('./routes/broadcast');
 
@@ -18,6 +26,7 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 const clients = new Map();
 const communityClients = new Map();
+const discussionClients = new Map(); // roomId -> Map<userId, ws>
 
 app.use('/ask', questionRoutes);
 app.use('/broadcast', broadcastRoutes);
@@ -40,18 +49,69 @@ function handleClientConnection(ws, userId, clientMap, clientType) {
   });
 }
 
+async function handleDiscussionConnection(ws, userId, roomId) {
+  if (!discussionClients.has(roomId)) {
+    discussionClients.set(roomId, new Map());
+  }
+  discussionClients.get(roomId).set(userId, ws);
+  console.log(`[WebSocket] Discussion client connected: ${userId} to room ${roomId}`);
+
+  const channel = await connectRabbitMQ();
+  const { queue } = await channel.assertQueue('', { exclusive: true, autoDelete: true });
+  const routingKey = `discussions.room.${roomId}`;
+  await channel.bindQueue(queue, EXCHANGE_DISCUSSIONS, routingKey);
+
+  const { consumerTag } = await channel.consume(queue, (msg) => {
+    if (msg) {
+      ws.send(msg.content.toString());
+    }
+  }, { noAck: true });
+
+  ws.on('message', (message) => {
+    try {
+      const parsedMessage = JSON.parse(message);
+      // Add server-side info
+      parsedMessage.senderId = userId;
+      parsedMessage.timestamp = new Date().toISOString();
+      
+      const payload = Buffer.from(JSON.stringify(parsedMessage));
+      channel.publish(EXCHANGE_DISCUSSIONS, routingKey, payload);
+    } catch (error) {
+      console.error(`[WebSocket] Error processing message from ${userId} in room ${roomId}:`, error);
+    }
+  });
+
+  ws.on('close', () => {
+    if (discussionClients.has(roomId)) {
+      discussionClients.get(roomId).delete(userId);
+      if (discussionClients.get(roomId).size === 0) {
+        discussionClients.delete(roomId);
+      }
+    }
+    channel.cancel(consumerTag);
+    console.log(`[WebSocket] Discussion client disconnected: ${userId} from room ${roomId}`);
+  });
+}
+
 function setupWebSocketServer() {
   wss.on('connection', (ws, req) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const userId = url.searchParams.get('userId');
     const type = url.searchParams.get('type') || 'chat';
+    const roomId = url.searchParams.get('roomId');
 
     if (!userId) {
       ws.close(1008, 'User ID is required');
       return;
     }
 
-    if (type === 'community') {
+    if (type === 'discussion') {
+      if (!roomId) {
+        ws.close(1008, 'Room ID is required for discussion type');
+        return;
+      }
+      handleDiscussionConnection(ws, userId, roomId);
+    } else if (type === 'community') {
       handleClientConnection(ws, userId, communityClients, 'Community');
     } else {
       handleClientConnection(ws, userId, clients, 'Chat');
