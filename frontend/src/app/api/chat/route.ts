@@ -26,11 +26,13 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await backendResponse.json();
-    return NextResponse.json(data);
+    return NextResponse.json(data, { status: 200 });
   } catch (error) {
+    console.error('[API_ROUTE_ERROR]', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal Server Error' },
       { status: 500 }
     );
   }
 }
+

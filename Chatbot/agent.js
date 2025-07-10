@@ -1,23 +1,16 @@
 const amqp = require("amqplib");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 require('dotenv').config();
+const { 
+  EXCHANGE_CHATBOT, 
+  EXCHANGE_TYPE_DIRECT, 
+  QUEUE_QUESTIONS, 
+  ROUTING_KEY_QUESTION, 
+  ROUTING_KEY_REPLY 
+} = require('../shared/constants');
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-const EXCHANGE = 'chatbot-exchange';
-const EXCHANGE_TYPE = 'direct';
-const QUEUE_QUESTIONS = 'user-questions';
-const ROUTING_KEY_QUESTION = 'question';
-const ROUTING_KEY_REPLY = 'reply';
-
-/**
- * A helper function to retry an async operation with exponential backoff.
- * @param {() => Promise<T>} fn The async function to retry.
- * @param {number} retries The maximum number of retries.
- * @param {number} delay The initial delay in milliseconds.
- * @returns {Promise<T>}
- * @template T
- */
 async function retryWithBackoff(fn, retries = 3, delay = 2000) {
   let lastError;
   for (let i = 0; i < retries; i++) {
@@ -25,7 +18,6 @@ async function retryWithBackoff(fn, retries = 3, delay = 2000) {
       return await fn();
     } catch (error) {
       lastError = error;
-      // Only retry on 5xx server errors (like 503 Service Unavailable)
       if (error.message && error.message.includes('[503')) {
         if (i < retries - 1) {
           const backoffDelay = delay * Math.pow(2, i);
@@ -33,7 +25,6 @@ async function retryWithBackoff(fn, retries = 3, delay = 2000) {
           await new Promise(res => setTimeout(res, backoffDelay));
         }
       } else {
-        // Don't retry on other errors (e.g., bad request, invalid key)
         throw lastError;
       }
     }
@@ -44,12 +35,13 @@ async function retryWithBackoff(fn, retries = 3, delay = 2000) {
 async function startAgent() {
   let connection;
   try {
+    console.log("[Agent] Connecting to RabbitMQ...");
     connection = await amqp.connect("amqp://localhost");
     const channel = await connection.createChannel();
 
-    await channel.assertExchange(EXCHANGE, EXCHANGE_TYPE, { durable: true });
+    await channel.assertExchange(EXCHANGE_CHATBOT, EXCHANGE_TYPE_DIRECT, { durable: true });
     await channel.assertQueue(QUEUE_QUESTIONS, { durable: true });
-    await channel.bindQueue(QUEUE_QUESTIONS, EXCHANGE, ROUTING_KEY_QUESTION);
+    await channel.bindQueue(QUEUE_QUESTIONS, EXCHANGE_CHATBOT, ROUTING_KEY_QUESTION);
 
     console.log("[RabbitMQ] Chatbot agent listening for questions.");
     await channel.prefetch(1);
@@ -72,7 +64,7 @@ async function startAgent() {
         };
 
         channel.publish(
-          EXCHANGE,
+          EXCHANGE_CHATBOT,
           ROUTING_KEY_REPLY,
           Buffer.from(JSON.stringify(responseMessage)),
           { persistent: true }
@@ -96,8 +88,7 @@ async function startAgent() {
   } catch (err) {
     console.error("[Agent] Error starting agent:", err.message);
     if (connection) await connection.close();
-    console.log("[Agent] Retrying in 5 seconds...");
-    setTimeout(startAgent, 5000);
+    throw err; // Re-throw to be caught by the retry logic in main
   }
 }
 
@@ -118,7 +109,6 @@ async function testGeminiAPI() {
   }
 }
 
-// Main execution
 async function main() {
   console.log("🚀 Starting Chatbot Agent Service...");
   if (!process.env.GEMINI_API_KEY) {
@@ -127,14 +117,16 @@ async function main() {
     process.exit(1);
   }
 
-  // Test Gemini API
-  const apiWorking = await testGeminiAPI();
-  if (!apiWorking) {
-    console.error("❌ Cannot start agent - Gemini API not working");
+  const isApiReady = await testGeminiAPI();
+  if (!isApiReady) {
+    console.error("❌ Cannot start agent - Gemini API is not responding.");
     process.exit(1);
   }
 
-  await startAgent();
+  await retryWithBackoff(startAgent, 5, 5000).catch(err => {
+    console.error("❌ [Agent] Could not connect to RabbitMQ after multiple retries. Exiting.", err.message);
+    process.exit(1);
+  });
 }
 
 main();

@@ -3,13 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Send, Bot, User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-
-interface Message {
-  id: string;
-  sender: 'user' | 'bot';
-  text: string;
-  timestamp: Date;
-}
+import { useChat, Message, ConnectionStatus } from '@/hooks/useChat';
 
 interface ChatBubbleProps {
   message: Message;
@@ -20,7 +14,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
   
   return (
     <div className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
-      {/* Avatar */}
       <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
         isUser 
           ? 'bg-blue-500 text-white' 
@@ -29,7 +22,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
         {isUser ? <User size={16} /> : <Bot size={16} />}
       </div>
       
-      {/* Message bubble */}
       <div className={`max-w-[80%] rounded-lg px-4 py-2 ${
         isUser 
           ? 'bg-blue-500 text-white' 
@@ -51,18 +43,9 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
 };
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
+  const { messages, connectionStatus, isLoading, sendMessage } = useChat();
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const ws = useRef<WebSocket | null>(null);
-
-  // Generate a unique user ID on the client-side.
-  useEffect(() => {
-    setUserId(`user_${Math.random().toString(36).substr(2, 9)}`);
-  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -72,110 +55,15 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
-  useEffect(() => {
-    if (!userId) return;
-
-    setConnectionStatus('connecting');
-    ws.current = new WebSocket(`ws://localhost:3001?userId=${userId}`);
-
-    ws.current.onopen = () => {
-      console.log('WebSocket connected');
-      setConnectionStatus('online');
-    };
-
-    ws.current.onmessage = (event) => {
-      const botReply = JSON.parse(event.data);
-      const botMessage: Message = {
-        id: `bot_${Date.now()}`,
-        sender: 'bot',
-        text: botReply.payload,
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, botMessage]);
-      setIsLoading(false);
-    };
-
-    ws.current.onclose = () => {
-      console.log('WebSocket disconnected');
-      setConnectionStatus('offline');
-    };
-
-    ws.current.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      setConnectionStatus('offline');
-      const errorMessage: Message = {
-        id: `error_${Date.now()}`,
-        sender: 'bot',
-        text: 'Sorry, there was a connection issue. Please refresh the page.',
-        timestamp: new Date()
-      };
-      setMessages(prev => [...prev, errorMessage]);
-      setIsLoading(false);
-    };
-
-    return () => {
-      ws.current?.close();
-    };
-  }, [userId]);
-
-
-  // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!inputText.trim() || isLoading || !userId || connectionStatus !== 'online') return;
-
-    const question = inputText.trim();
+    if (!inputText.trim()) return;
+    sendMessage(inputText);
     setInputText('');
-    setIsLoading(true);
-
-    const userMessage: Message = {
-      id: `user_${Date.now()}`,
-      sender: 'user',
-      text: question,
-      timestamp: new Date()
-    };
-    
-    setMessages(prev => [...prev, userMessage]);
-
-    try {
-      // Use the Next.js API route instead of calling the backend directly.
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          userId,
-          question
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('Question sent successfully:', data);
-
-    } catch (error) {
-      console.error('Error sending question:', error);
-      
-      const errorMessage: Message = {
-        id: `error_${Date.now()}`,
-        sender: 'bot',
-        text: 'Sorry, there was an error sending your question. Please try again.',
-        timestamp: new Date()
-      };
-      
-      setMessages(prev => [...prev, errorMessage]);
-      setIsLoading(false);
-    }
   };
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Header */}
       <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
         <div className="flex items-center gap-3">
           <Bot className="w-6 h-6 text-blue-500" />
@@ -185,7 +73,6 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Messages Container */}
       <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
@@ -221,7 +108,6 @@ export default function ChatPage() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Chat Input */}
       <div className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-6 py-4">
         <form onSubmit={handleSubmit} className="flex gap-2">
           <input
@@ -229,11 +115,11 @@ export default function ChatPage() {
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             placeholder={
-              connectionStatus === 'online' 
+              connectionStatus === ConnectionStatus.Online
                 ? 'Type your question here...' 
                 : 'Waiting for server connection...'
             }
-            disabled={isLoading || connectionStatus !== 'online'}
+            disabled={isLoading || connectionStatus !== ConnectionStatus.Online}
             className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg 
                      bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 
                      placeholder-gray-500 dark:placeholder-gray-400
@@ -242,7 +128,7 @@ export default function ChatPage() {
           />
           <button
             type="submit"
-            disabled={!inputText.trim() || isLoading || connectionStatus !== 'online'}
+            disabled={!inputText.trim() || isLoading || connectionStatus !== ConnectionStatus.Online}
             className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 
                      focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
                      disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-500
@@ -253,21 +139,20 @@ export default function ChatPage() {
           </button>
         </form>
         
-        {/* Status indicator */}
         <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-          {connectionStatus === 'connecting' && (
+          {connectionStatus === ConnectionStatus.Connecting && (
             <span className="flex items-center gap-1 text-yellow-500">
               <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
               Connecting to server...
             </span>
           )}
-          {connectionStatus === 'online' && (
+          {connectionStatus === ConnectionStatus.Online && (
             <span className="flex items-center gap-1 text-green-500">
               <div className="w-2 h-2 bg-green-500 rounded-full"></div>
               Connected
             </span>
           )}
-          {connectionStatus === 'offline' && (
+          {connectionStatus === ConnectionStatus.Offline && (
             <span className="flex items-center gap-1 text-red-500">
               <div className="w-2 h-2 bg-red-500 rounded-full"></div>
               Connection failed. Please ensure the backend server is running.

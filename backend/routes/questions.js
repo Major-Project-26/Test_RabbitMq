@@ -1,7 +1,7 @@
-// routes/questions.js
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { publishToQueue } = require('../rabbitmq/publisher');
+const { EXCHANGE_CHATBOT, ROUTING_KEY_QUESTION } = require('../../shared/constants');
 
 const router = express.Router();
 
@@ -17,12 +17,12 @@ router.post('/', async (req, res) => {
   const message = {
     questionId,
     userId,
-    question, // Renamed from 'payload' for clarity
+    question,
     timestamp: new Date().toISOString()
   };
 
   try {
-    await publishToQueue('chatbot-exchange', 'question', message);
+    await publishToQueue(EXCHANGE_CHATBOT, ROUTING_KEY_QUESTION, message);
     res.status(200).json({ success: true, questionId });
   } catch (error) {
     console.error('[RabbitMQ] Error publishing question:', error);
